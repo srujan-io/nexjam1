@@ -1,0 +1,285 @@
+import {
+  Canvas,
+  useLoader,
+  useThree,
+  useFrame
+} from "@react-three/fiber";
+
+import * as THREE from "three";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
+
+/* ---------- BACKGROUND ---------- */
+function Background() {
+
+  const { scene } = useThree();
+
+  const texture = useLoader(
+    THREE.TextureLoader,
+    "/background.png"
+  );
+
+  useEffect(() => {
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    scene.background = texture;
+  }, [scene, texture]);
+
+  return null;
+}
+
+/* ---------- VISUAL CUBE ---------- */
+function VisualCube({ locked }) {
+
+  const geometry = useMemo(
+    () => new THREE.BoxGeometry(2,2,2,5,5,5),
+    []
+  );
+
+  const materials = [
+    new THREE.MeshStandardMaterial({color:"#ff4d4d",emissive:locked?"#330000":"#000"}),
+    new THREE.MeshStandardMaterial({color:"#ffa64d",emissive:locked?"#332200":"#000"}),
+    new THREE.MeshStandardMaterial({color:"#4dff88",emissive:locked?"#003311":"#000"}),
+    new THREE.MeshStandardMaterial({color:"#4da6ff",emissive:locked?"#001133":"#000"}),
+    new THREE.MeshStandardMaterial({color:"#b84dff",emissive:locked?"#220033":"#000"}),
+    new THREE.MeshStandardMaterial({color:"#ffff4d",emissive:locked?"#333300":"#000"}),
+  ];
+
+  return (
+    <group>
+      <mesh geometry={geometry} material={materials}/>
+
+      <lineSegments>
+        <wireframeGeometry args={[geometry]}/>
+        <lineBasicMaterial color="black"/>
+      </lineSegments>
+    </group>
+  );
+}
+
+/* ---------- CLICKABLE FACE ---------- */
+function Face({face,position,rotation,locked,selected,setSelected}){
+
+  const N=5;
+  const size=2/N;
+  const tiles=[];
+
+  for(let i=0;i<N;i++){
+    for(let j=0;j<N;j++){
+
+      const id=`${face}-${i}-${j}`;
+      const active=selected.includes(id);
+
+      tiles.push(
+        <mesh
+          key={id}
+          position={[
+            -1+size/2+i*size,
+            -1+size/2+j*size,
+            0
+          ]}
+          visible={locked}
+          onClick={()=>{
+            if(!locked) return;
+            setSelected(prev =>
+              prev.includes(id)?prev:[...prev,id]
+            );
+          }}
+        >
+          <planeGeometry args={[size,size]}/>
+          <meshBasicMaterial
+            color={active?"lime":"white"}
+            transparent
+            opacity={active?0.85:0}
+          />
+        </mesh>
+      );
+    }
+  }
+
+  return <group position={position} rotation={rotation}>{tiles}</group>;
+}
+
+/* ---------- CLICK LAYER ---------- */
+function ClickLayer({locked,selected,setSelected}){
+
+  return(
+    <group>
+      <Face face="front" position={[0,0,1.01]} rotation={[0,0,0]} locked={locked} selected={selected} setSelected={setSelected}/>
+      <Face face="back" position={[0,0,-1.01]} rotation={[0,Math.PI,0]} locked={locked} selected={selected} setSelected={setSelected}/>
+      <Face face="right" position={[1.01,0,0]} rotation={[0,Math.PI/2,0]} locked={locked} selected={selected} setSelected={setSelected}/>
+      <Face face="left" position={[-1.01,0,0]} rotation={[0,-Math.PI/2,0]} locked={locked} selected={selected} setSelected={setSelected}/>
+      <Face face="top" position={[0,1.01,0]} rotation={[Math.PI/2,0,0]} locked={locked} selected={selected} setSelected={setSelected}/>
+      <Face face="bottom" position={[0,-1.01,0]} rotation={[-Math.PI/2,0,0]} locked={locked} selected={selected} setSelected={setSelected}/>
+    </group>
+  );
+}
+
+/* ---------- FLOATING GROUP ---------- */
+function FloatingGroup({rotation,locked,selected,setSelected}){
+
+  const group=useRef();
+
+  useFrame((state)=>{
+
+    // floating motion
+    group.current.position.y =
+      Math.sin(state.clock.elapsedTime)*0.15;
+
+    // smooth rotation
+    group.current.rotation.x +=
+      (rotation[0]-group.current.rotation.x)*0.1;
+
+    group.current.rotation.y +=
+      (rotation[1]-group.current.rotation.y)*0.1;
+
+    group.current.rotation.z +=
+      (rotation[2]-group.current.rotation.z)*0.1;
+  });
+
+  return(
+    <group ref={group}>
+      <VisualCube locked={locked}/>
+      <ClickLayer
+        locked={locked}
+        selected={selected}
+        setSelected={setSelected}
+      />
+    </group>
+  );
+}
+
+/* ---------- APP ---------- */
+export default function App(){
+
+  const STEP=Math.PI/4;
+
+  const [rotation,setRotation]=useState([0,0,0]);
+  const [locked,setLocked]=useState(false);
+  const [selected,setSelected]=useState([]);
+
+  const [savedPassword,setSavedPassword]=useState(null);
+  const [status,setStatus]=useState("Create Password");
+
+  useEffect(()=>{
+
+    const handleKey=(e)=>{
+
+      const key=e.key.toLowerCase();
+
+      if(key==="l"){
+        setLocked(true);
+        return;
+      }
+
+      if(key==="enter"){
+        setSavedPassword({rotation,tiles:selected});
+        setStatus("Password Saved ✅");
+        return;
+      }
+
+      if(key==="v"){
+        if(!savedPassword){
+          setStatus("No password saved");
+          return;
+        }
+
+        const ok=
+          JSON.stringify(rotation)===JSON.stringify(savedPassword.rotation)&&
+          JSON.stringify(selected.sort())===JSON.stringify(savedPassword.tiles.sort());
+
+        setStatus(ok?"ACCESS GRANTED ✅":"ACCESS DENIED ❌");
+        return;
+      }
+
+      if(key==="r"){
+        setLocked(false);
+        setSelected([]);
+        setStatus("Reset");
+        return;
+      }
+
+      if(locked) return;
+
+      setRotation(([x,y,z])=>{
+        switch(key){
+          case "w":return[x-STEP,y,z];
+          case "s":return[x+STEP,y,z];
+          case "a":return[x,y-STEP,z];
+          case "d":return[x,y+STEP,z];
+          case "q":return[x,y,z-STEP];
+          case "e":return[x,y,z+STEP];
+          default:return[x,y,z];
+        }
+      });
+    };
+
+    window.addEventListener("keydown",handleKey);
+    return()=>window.removeEventListener("keydown",handleKey);
+
+  },[locked,rotation,selected,savedPassword]);
+
+  return(
+    <div style={{height:"100vh",width:"100vw"}}>
+
+      <Canvas camera={{position:[5,4,6],fov:50}}>
+
+        <Background/>
+
+        <ambientLight intensity={1}/>
+        <pointLight position={[10,10,10]}/>
+
+        <FloatingGroup
+          rotation={rotation}
+          locked={locked}
+          selected={selected}
+          setSelected={setSelected}
+        />
+
+      </Canvas>
+
+      {/* CONTROLS */}
+      <div style={{
+        position:"absolute",
+        top:20,
+        right:20,
+        color:"white",
+        background:"rgba(0,0,0,0.6)",
+        padding:"12px 16px",
+        borderRadius:"10px",
+        fontFamily:"monospace"
+      }}>
+        <b>Controls</b>
+        <div>W/S → X</div>
+        <div>A/D → Y</div>
+        <div>Q/E → Z</div>
+        <div>L → Lock</div>
+        <div>ENTER → Save</div>
+        <div>V → Verify</div>
+        <div>R → Reset</div>
+      </div>
+
+      {/* STATUS */}
+      <div style={{
+        position:"absolute",
+        bottom:30,
+        left:"50%",
+        transform:"translateX(-50%)",
+        color:"white",
+        fontSize:"22px",
+        fontWeight:"bold",
+        background:"rgba(0,0,0,0.7)",
+        padding:"12px 24px",
+        borderRadius:"12px"
+      }}>
+        {status}
+      </div>
+
+    </div>
+  );
+}
